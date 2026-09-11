@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke Live</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --text:#e8eaf0; --muted:#8b91a1; --accent:#ff4d6d; --ok:#3ddc84; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, "Segoe UI", sans-serif; height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); align-items:center; }
+  header h1 { font-size:18px; margin:0 12px 0 0; white-space:nowrap; }
+  header input { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--text); padding:9px 12px; border-radius:8px; font-size:14px; }
+  button { background:var(--panel); border:1px solid var(--line); color:var(--text); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.4; cursor:default; }
+  main { flex:1; display:grid; grid-template-columns: 1fr 360px; min-height:0; }
+  #stage { display:flex; flex-direction:column; padding:16px; gap:12px; min-width:0; }
+  #video { position:relative; flex:1; background:#000; border-radius:12px; overflow:hidden; min-height:200px; display:flex; align-items:center; justify-content:center; }
+  #video iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  #video img { max-width:100%; max-height:100%; opacity:.5; }
+  #overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.55); font-size:20px; pointer-events:none; }
+  #overlay[hidden] { display:none; }
+  #title { font-size:18px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #controls { display:flex; align-items:center; gap:12px; }
+  #progress { flex:1; height:10px; background:var(--line); border-radius:5px; position:relative; cursor:pointer; }
+  #buffered { position:absolute; left:0; top:0; bottom:0; background:#3a4150; border-radius:5px; }
+  #played { position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:5px; }
+  #time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:95px; text-align:right; }
+  .sliders { display:grid; grid-template-columns: auto 1fr auto; gap:8px 12px; align-items:center; background:var(--panel); padding:12px 16px; border-radius:12px; }
+  .sliders label { color:var(--muted); }
+  .sliders input[type=range] { width:100%; accent-color:var(--accent); }
+  .sliders span { min-width:44px; text-align:right; font-variant-numeric:tabular-nums; }
+  #list { border-left:1px solid var(--line); overflow-y:auto; }
+  .item { display:flex; gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); cursor:pointer; align-items:center; }
+  .item:hover { background:var(--panel); }
+  .item.active { background:#25202a; border-left:3px solid var(--accent); }
+  .item img { width:80px; height:45px; object-fit:cover; border-radius:4px; flex-shrink:0; }
+  .item .t { flex:1; min-width:0; }
+  .item .t div:first-child { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:14px; }
+  .item .st { font-size:12px; color:var(--muted); }
+  .item .st.done { color:var(--ok); }
+  .item .st.working { color:#ffb347; }
+  .item .x { color:var(--muted); padding:4px 6px; }
+  .item .x:hover { color:var(--accent); }
+  #empty { padding:24px; color:var(--muted); text-align:center; }
+  #msg { color:var(--muted); font-size:13px; }
+  #msg.err { color:var(--accent); }
+  #lyrics { position:absolute; left:4%; right:4%; bottom:8%; text-align:center; pointer-events:none; color:#fff; text-shadow:0 0 6px rgba(0,0,0,.95), 0 2px 4px rgba(0,0,0,.9); font-size:clamp(16px, 2.6vw, 34px); }
+  #lyrics .cur { font-weight:700; line-height:1.35; }
+  #lyrics .cur span { color:rgba(255,255,255,.55); }
+  #lyrics .cur span.on { color:#ffd54a; }
+  #lyrics .nxt { font-size:.7em; opacity:.75; margin-top:.2em; }
+  #lyrics[hidden] { display:none; }
+  @media (max-width:800px) { main { grid-template-columns:1fr; grid-template-rows: 1fr 260px; } #list { border-left:0; border-top:1px solid var(--line);} }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎤 Karaoke Live</h1>
+  <input id="url" placeholder="วาง URL เพลงหรือ playlist จาก YouTube แล้วกด Enter">
+  <button id="add" class="primary">เพิ่ม</button>
+  <span id="msg"></span>
+</header>
+<main>
+  <section id="stage">
+    <div id="video">
+      <img id="thumb" alt="">
+      <div id="player"></div>
+      <div id="lyrics" hidden><div class="cur"></div><div class="nxt"></div></div>
+      <div id="overlay" hidden></div>
+    </div>
+    <div id="title">ยังไม่ได้เลือกเพลง</div>
+    <div id="controls">
+      <button id="prev" title="เพลงก่อนหน้า">⏮</button>
+      <button id="play" class="primary" style="min-width:56px">▶</button>
+      <button id="next" title="เพลงถัดไป">⏭</button>
+      <div id="progress"><div id="buffered"></div><div id="played"></div></div>
+      <div id="time">0:00 / 0:00</div>
+    </div>
+    <div class="sliders">
+      <label>เสียงร้อง</label><input id="vocal" type="range" min="0" max="100" value="0"><span id="vocalV">0%</span>
+      <label>ดนตรี</label><input id="music" type="range" min="0" max="100" value="100"><span id="musicV">100%</span>
+    </div>
+  </section>
+  <aside id="list"><div id="empty">ยังไม่มีเพลงในรายการ<br>วาง URL ด้านบนเพื่อเริ่ม</div></aside>
+</main>
+
+<script>
+// ---------- state ----------
+const $ = s => document.querySelector(s);
+const playlist = JSON.parse(localStorage.getItem('playlist') || '[]');
+let cur = -1;                 // index in playlist
+let status = {};              // vid -> status from server
+let ctx, accGain, vocGain, master;
+let playing = false;
+let nextChunk = 0;            // next chunk index to schedule
+let scheduledUntil = 0;       // ctx time up to which audio is scheduled
+let anchorCtx = 0, anchorTrack = 0; // for computing track time
+let sources = [];             // live AudioBufferSourceNodes
+let fetching = false;
+let seekOffset = 0;           // offset inside chunk for first scheduled chunk after seek
+let generation = 0;           // invalidates async work after track change / seek
+let yt = null, ytReady = false, ytVideo = null;
+
+const fmt = s => { s = Math.max(0, Math.floor(s||0)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); };
+const save = () => localStorage.setItem('playlist', JSON.stringify(playlist));
+const msg = (t, err=false) => { $('#msg').textContent = t; $('#msg').className = err ? 'err' : ''; };
+
+function ensureCtx() {
+  if (ctx) return;
+  ctx = new AudioContext({ sampleRate: 44100 });
+  master = ctx.createGain(); master.connect(ctx.destination);
+  accGain = ctx.createGain(); accGain.connect(master);
+  vocGain = ctx.createGain(); vocGain.connect(master);
+  applySliders();
+}
+function applySliders() {
+  if (!ctx) return;
+  vocGain.gain.value = $('#vocal').value / 100;
+  accGain.gain.value = $('#music').value / 100;
+}
+['vocal','music'].forEach(id => $('#'+id).oninput = e => { $('#'+id+'V').textContent = e.target.value + '%'; applySliders(); });
+
+// ---------- playlist ----------
+async function addUrl() {
+  const url = $('#url').value.trim(); if (!url) return;
+  msg('กำลังดึงข้อมูล...');
+  $('#add').disabled = true;
+  try {
+    const r = await fetch('/api/resolve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const { items } = await r.json();
+    let added = 0;
+    for (const it of items) if (!playlist.some(p => p.id === it.id)) { playlist.push(it); added++; }
+    save(); renderList(); msg(`เพิ่มแล้ว ${added} เพลง`);
+    $('#url').value = '';
+    prepare();
+    if (cur < 0 && playlist.length) playTrack(0);
+  } catch (e) { msg(e.message, true); }
+  $('#add').disabled = false;
+}
+$('#add').onclick = addUrl;
+$('#url').onkeydown = e => { if (e.key === 'Enter') addUrl(); };
+
+function renderList() {
+  const list = $('#list');
+  if (!playlist.length) { list.innerHTML = '<div id="empty">ยังไม่มีเพลงในรายการ<br>วาง URL ด้านบนเพื่อเริ่ม</div>'; return; }
+  list.innerHTML = '';
+  playlist.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'item' + (i === cur ? ' active' : '');
+    d.innerHTML = `<img src="${p.thumbnail}"><div class="t"><div title="${p.title}">${p.title}</div><div class="st" data-id="${p.id}"></div></div><div class="x" title="ลบ">✕</div>`;
+    d.onclick = () => playTrack(i);
+    d.querySelector('.x').onclick = ev => { ev.stopPropagation(); removeTrack(i); };
+    list.appendChild(d);
+  });
+  renderStatus();
+}
+function renderStatus() {
+  document.querySelectorAll('.st').forEach(el => {
+    const s = status[el.dataset.id]; if (!s) { el.textContent = ''; return; }
+    const map = { idle:'', queued:'รอคิว', downloading:'กำลังโหลด...', processing:`กำลังแยกเสียง ${Math.round(100*(s.chunks_ready||0)/(s.total_chunks||1))}%`, done:'พร้อม ✓', error:'ผิดพลาด' };
+    el.textContent = map[s.state] ?? s.state;
+    el.className = 'st ' + (s.state === 'done' ? 'done' : (s.state === 'processing' || s.state === 'downloading') ? 'working' : '');
+  });
+}
+function removeTrack(i) {
+  const wasCur = i === cur;
+  playlist.splice(i, 1); save();
+  if (wasCur) { stopAudio(); cur = -1; $('#title').textContent = 'ยังไม่ได้เลือกเพลง'; }
+  else if (i < cur) cur--;
+  renderList();
+}
+async function prepare() {
+  // priority: current, then following tracks, then earlier ones
+  const order = [];
+  for (let k = 0; k < playlist.length; k++) order.push(playlist[(Math.max(cur,0) + k) % playlist.length].id);
+  await fetch('/api/prepare', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ids: order}) });
+}
+
+// ---------- playback ----------
+function stopAudio() {
+  generation++;
+  sources.forEach(s => { try { s.stop(); } catch {} });
+  sources = []; playing = false; fetching = false;
+  $('#play').textContent = '▶';
+  if (yt && ytReady) try { yt.pauseVideo(); } catch {}
+}
+async function playTrack(i) {
+  if (i < 0 || i >= playlist.length) return;
+  ensureCtx(); await ctx.resume();
+  stopAudio();
+  cur = i; const p = playlist[i];
+  $('#title').textContent = p.title; $('#thumb').src = p.thumbnail;
+  renderList(); prepare();
+  nextChunk = 0; seekOffset = 0; scheduledUntil = 0;
+  anchorCtx = ctx.currentTime; anchorTrack = 0;
+  playing = true; $('#play').textContent = '⏸';
+  loadVideo(p.id);
+  pump();
+}
+function trackTime() {
+  if (!ctx || cur < 0) return 0;
+  return anchorTrack + (ctx.currentTime - anchorCtx);
+}
+function trackDuration() { return status[cur >= 0 ? playlist[cur].id : '']?.duration || playlist[cur]?.duration || 0; }
+
+async function pump() {
+  if (!playing || fetching) return;
+  const p = playlist[cur]; const s = status[p.id];
+  const chunkSec = s?.chunk_sec || 10;
+  if (!s || s.total_chunks === 0) return;
+  if (nextChunk >= s.total_chunks) return;               // all scheduled
+  if (scheduledUntil - ctx.currentTime > chunkSec * 1.5) return; // enough buffered
+  if (nextChunk >= (s.chunks_ready || 0)) return;        // chunk not ready yet
+  fetching = true; const gen = generation; const n = nextChunk;
+  try {
+    const [a, v] = await Promise.all(['acc','voc'].map(async st => {
+      const r = await fetch(`/api/chunk/${p.id}/${n}/${st}`); if (!r.ok) throw new Error('chunk ' + r.status);
+      return ctx.decodeAudioData(await r.arrayBuffer());
+    }));
+    if (gen !== generation) return;
+    const offset = n === nextChunk ? seekOffset : 0; seekOffset = 0;
+    let when = scheduledUntil;
+    if (when < ctx.currentTime + 0.05) {                 // underrun or fresh start: re-anchor
+      when = ctx.currentTime + 0.15;
+      anchorCtx = when; anchorTrack = n * chunkSec + offset;
+    }
+    for (const [buf, g] of [[a, accGain], [v, vocGain]]) {
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(g);
+      src.start(when, offset); sources.push(src);
+      src.onended = () => { sources = sources.filter(x => x !== src); };
+    }
+    scheduledUntil = when + a.duration - offset;
+    nextChunk = n + 1;
+  } catch (e) { console.warn(e); }
+  fetching = false;
+  pump();
+}
+
+function seekTo(t) {
+  if (cur < 0 || !ctx) return;
+  const s = status[playlist[cur].id]; if (!s) return;
+  const chunkSec = s.chunk_sec || 10;
+  const wasPlaying = playing;
+  stopAudio();
+  nextChunk = Math.floor(t / chunkSec); seekOffset = t - nextChunk * chunkSec; scheduledUntil = 0;
+  anchorCtx = ctx.currentTime; anchorTrack = t;
+  playing = wasPlaying; if (playing) $('#play').textContent = '⏸';
+  if (yt && ytReady) try { yt.seekTo(t, true); if (playing) yt.playVideo(); } catch {}
+  pump();
+}
+$('#progress').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); seekTo((e.clientX - r.left) / r.width * trackDuration()); };
+
+async function togglePlay() {
+  if (cur < 0) { if (playlist.length) playTrack(0); return; }
+  ensureCtx();
+  if (playing) { await ctx.suspend(); playing = false; $('#play').textContent = '▶'; if (yt && ytReady) try { yt.pauseVideo(); } catch {} }
+  else { await ctx.resume(); playing = true; $('#play').textContent = '⏸'; if (yt && ytReady) try { yt.playVideo(); } catch {} pump(); }
+}
+$('#play').onclick = togglePlay;
+$('#next').onclick = () => playTrack((cur + 1) % playlist.length);
+$('#prev').onclick = () => playTrack((cur - 1 + playlist.length) % playlist.length);
+document.addEventListener('keydown', e => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); togglePlay(); } });
+
+// ---------- YouTube video (muted, synced) ----------
+const tag = document.createElement('script'); tag.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(tag);
+window.onYouTubeIframeAPIReady = () => {
+  yt = new YT.Player('player', { videoId: '', playerVars: { controls:0, disablekb:1, rel:0, modestbranding:1, iv_load_policy:3, playsinline:1 },
+    events: { onReady: () => { ytReady = true; yt.mute(); if (ytVideo) loadVideo(ytVideo); },
+              onStateChange: ev => { if (ev.data === YT.PlayerState.PLAYING && !playing) yt.pauseVideo(); } } });
+};
+function loadVideo(id) {
+  ytVideo = id;
+  if (!yt || !ytReady) return;
+  try { yt.mute(); yt.loadVideoById(id, 0); yt.pauseVideo(); } catch {}
+}
+function syncVideo() {
+  if (!yt || !ytReady || cur < 0 || !playing) return;
+  try {
+    if (yt.getVideoData()?.video_id !== playlist[cur].id) return;
+    const buffering = scheduledUntil <= ctx.currentTime;
+    const st = yt.getPlayerState();
+    if (buffering) { if (st === YT.PlayerState.PLAYING) yt.pauseVideo(); return; }
+    const t = trackTime();
+    if (Math.abs(yt.getCurrentTime() - t) > 0.5) yt.seekTo(t, true);
+    if (st !== YT.PlayerState.PLAYING) yt.playVideo();
+  } catch {}
+}
+
+// ---------- polling / UI loop ----------
+async function poll() {
+  const ids = new Set(playlist.map(p => p.id));
+  if (cur >= 0) {
+    const id = playlist[cur].id;
+    try { status[id] = await (await fetch('/api/status/' + id)).json(); } catch {}
+  }
+  try {
+    const all = await (await fetch('/api/status')).json();
+    for (const id of ids) if (all.tracks[id] && (cur < 0 || id !== playlist[cur].id)) status[id] = Object.assign(status[id] || {}, all.tracks[id]);
+    if (!all.model_ready) msg('กำลังโหลดโมเดล AI... (ครั้งแรกอาจใช้เวลาสักครู่)');
+    else if ($('#msg').textContent.startsWith('กำลังโหลดโมเดล')) msg('');
+  } catch {}
+  renderStatus();
+  pump();
+}
+setInterval(poll, 700);
+setInterval(syncVideo, 1000);
+
+// ---------- lyrics ----------
+let lyricsLines = null, lyricsVid = null, lyricsIdx = -2, lyricsState = '', lyricsFinalFlag = false;
+async function pollLyrics() {
+  if (cur < 0) return;
+  const id = playlist[cur].id;
+  if (lyricsVid !== id) { lyricsVid = id; lyricsLines = null; lyricsIdx = -2; lyricsState = ''; lyricsFinalFlag = false; }
+  if ((lyricsState === 'done' && lyricsFinalFlag) || lyricsState === 'none') return;
+  try {
+    const d = await (await fetch('/api/lyrics/' + id)).json();
+    if (d.state === 'done') { const lines = d.lines || []; if (!lyricsLines || lines.length !== lyricsLines.length) { lyricsLines = lines; lyricsIdx = -2; } lyricsState = lines.length ? 'done' : (d.final ? 'none' : 'pending'); lyricsFinalFlag = !!d.final; }
+    else lyricsState = d.state + (d.progress ? ` ${Math.round(d.progress * 100)}%` : '');
+  } catch {}
+}
+setInterval(pollLyrics, 2000);
+const esc = x => x.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+function renderLyrics(t) {
+  const box = $('#lyrics'), curEl = box.querySelector('.cur'), nxtEl = box.querySelector('.nxt');
+  if (cur < 0) { box.hidden = true; return; }
+  if (!lyricsLines) {
+    if (lyricsState.startsWith('working') || lyricsState.startsWith('pending')) { box.hidden = false; curEl.innerHTML = `<span>${lyricsState.startsWith('working') ? 'กำลังถอดคำร้อง ' + lyricsState.slice(8) : 'รอถอดคำร้อง...'}</span>`; nxtEl.textContent = ''; }
+    else box.hidden = true;
+    return;
+  }
+  if (!lyricsLines.length) { box.hidden = true; return; }
+  let idx = -1; for (let i = 0; i < lyricsLines.length && lyricsLines[i].s <= t + 0.1; i++) idx = i;
+  const c = lyricsLines[idx], n = lyricsLines[idx + 1];
+  const gap = c && t > c.e + 3 && (!n || n.s - t > 3);
+  box.hidden = false;
+  if (idx !== lyricsIdx) {
+    lyricsIdx = idx;
+    if (!c || gap) curEl.textContent = n ? '♪ ♪ ♪' : '';
+    else if (c.words && c.words.length > 1) curEl.innerHTML = c.words.map((w, i) => `<span>${esc(w.w)}${i < c.words.length - 1 && /[A-Za-z0-9,.!?]$/.test(w.w) ? ' ' : ''}</span>`).join('');
+    else curEl.innerHTML = `<span>${esc(c.text)}</span>`;
+    nxtEl.textContent = n ? n.text : '';
+  } else if (c && gap && n && curEl.textContent !== '♪ ♪ ♪') curEl.textContent = '♪ ♪ ♪';
+  if (c && !gap) { const sp = curEl.children; if (c.words && c.words.length > 1) for (let i = 0; i < sp.length; i++) sp[i].classList.toggle('on', c.words[i].s <= t + 0.1); else if (sp[0]) sp[0].classList.toggle('on', t >= c.s); }
+}
+
+function tick() {
+  const ov = $('#overlay');
+  if (cur >= 0 && ctx) {
+    const s = status[playlist[cur].id];
+    const dur = trackDuration();
+    let t = trackTime();
+    const buffering = playing && scheduledUntil <= ctx.currentTime;
+    if (buffering) t = anchorTrack + (scheduledUntil - anchorCtx); // freeze while buffering
+    if (buffering && t < 0) t = 0;
+    $('#time').textContent = `${fmt(Math.min(t, dur))} / ${fmt(dur)}`;
+    renderLyrics(t);
+    $('#played').style.width = dur ? Math.min(100, 100 * t / dur) + '%' : '0';
+    const bufSec = s ? (s.chunks_ready || 0) * (s.chunk_sec || 10) : 0;
+    $('#buffered').style.width = dur ? Math.min(100, 100 * bufSec / dur) + '%' : '0';
+    if (playing && buffering) {
+      ov.hidden = false;
+      ov.textContent = !s || s.state === 'queued' || s.state === 'idle' ? 'รอคิวประมวลผล...' : s.state === 'downloading' ? 'กำลังโหลดเพลง...' : s.state === 'error' ? 'ผิดพลาด: ' + (s.error || '') : s.total_chunks && nextChunk >= s.total_chunks ? '' : 'กำลังแยกเสียงร้อง...';
+      if (s && s.total_chunks && nextChunk >= s.total_chunks && ctx.currentTime > scheduledUntil + 0.3) {
+        ov.hidden = true;
+        if (cur + 1 < playlist.length) playTrack(cur + 1); else stopAudio(); // track ended -> next, or stop at end of list
+      }
+    } else ov.hidden = true;
+  }
+  requestAnimationFrame(tick);
+}
+renderList(); requestAnimationFrame(tick);
+</script>
+</body>
+</html>

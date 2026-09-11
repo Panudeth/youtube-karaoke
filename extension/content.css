@@ -1,0 +1,57 @@
+#kl-panel {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: 300px;
+  background: rgba(16,18,24,.94); color: #e8eaf0; border: 1px solid #2b303c; border-radius: 14px;
+  padding: 10px 14px 12px; font: 13px/1.45 system-ui, "Segoe UI", "Noto Sans Thai", sans-serif;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); user-select: none; backdrop-filter: blur(6px);
+}
+#kl-panel * { box-sizing: border-box; }
+#kl-panel.kl-min { width: auto; padding: 6px 12px; cursor: pointer; }
+#kl-panel.kl-min .kl-body { display: none; }
+#kl-panel .kl-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+#kl-panel .kl-head b { flex: 1; font-weight: 600; font-size: 14px; }
+#kl-panel .kl-chev { color: #8b91a1; font-size: 12px; }
+#kl-panel .kl-dot { width: 9px; height: 9px; border-radius: 50%; background: #666; flex-shrink: 0; }
+#kl-panel .kl-dot.on { background: #3ddc84; box-shadow: 0 0 8px #3ddc84aa; }
+#kl-panel .kl-dot.work { background: #ffb347; }
+#kl-panel .kl-dot.err { background: #ff4d6d; }
+#kl-panel .kl-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#kl-panel .kl-row { display: flex; align-items: center; gap: 10px; min-height: 24px; }
+#kl-panel .kl-lbl { color: #aab0bf; width: 84px; flex-shrink: 0; }
+#kl-panel .kl-main { background: #1c2029; border-radius: 10px; padding: 8px 10px; }
+#kl-panel .kl-main .kl-lbl { color: #fff; font-weight: 600; font-size: 14px; width: auto; flex: 1; }
+#kl-panel .kl-main .kl-mode { color: #8b91a1; font-size: 12px; margin-right: 8px; }
+#kl-panel input[type=range] { flex: 1; accent-color: #ff4d6d; height: 4px; margin: 0; }
+#kl-panel .kl-val { width: 40px; text-align: right; color: #aab0bf; font-variant-numeric: tabular-nums; }
+#kl-panel select { flex: 1; background: #1c2029; color: #e8eaf0; border: 1px solid #2b303c; border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+/* switch */
+#kl-panel .kl-sw { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+#kl-panel .kl-sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+#kl-panel .kl-sw span { position: absolute; inset: 0; background: #3a4150; border-radius: 22px; transition: background .15s; cursor: pointer; }
+#kl-panel .kl-sw span::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; }
+#kl-panel .kl-sw input:checked + span { background: #ff4d6d; }
+#kl-panel .kl-sw input:checked + span::before { transform: translateX(18px); }
+#kl-panel .kl-sw.sm { width: 34px; height: 19px; }
+#kl-panel .kl-sw.sm span::before { width: 13px; height: 13px; }
+#kl-panel .kl-sw.sm input:checked + span::before { transform: translateX(15px); }
+/* progress + status */
+#kl-panel .kl-prog { display: flex; flex-direction: column; gap: 4px; }
+#kl-panel .kl-bar { height: 4px; background: #2b303c; border-radius: 2px; overflow: hidden; }
+#kl-panel .kl-bar div { height: 100%; width: 0; background: #ff4d6d; transition: width .3s; }
+#kl-panel .kl-bar div.ok { background: #3ddc84; }
+#kl-panel #kl-status { color: #aab0bf; font-size: 12px; min-height: 16px; }
+#kl-panel #kl-status.err { color: #ff8fa3; }
+#kl-panel .kl-more { display: flex; gap: 6px; flex-wrap: wrap; }
+#kl-panel .kl-more button { background: #262b36; color: #cfd3dc; border: 1px solid #2b303c; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+#kl-panel .kl-more button:hover { border-color: #ff4d6d; color: #fff; }
+#kl-panel .kl-more button.hot { background: #ff4d6d; color: #fff; border-color: #ff4d6d; }
+#kl-panel #kl-diag { color: #6d7382; font-size: 10.5px; line-height: 1.3; word-break: break-all; }
+
+/* lyrics overlay inside the YouTube player */
+#kl-lyrics { position: absolute; left: 4%; right: 4%; bottom: 13%; z-index: 59; text-align: center; pointer-events: none;
+  font-family: system-ui, "Segoe UI", "Noto Sans Thai", sans-serif; color: #fff; text-shadow: 0 0 6px rgba(0,0,0,.95), 0 2px 4px rgba(0,0,0,.9); }
+#kl-lyrics .kl-cur { font-size: 1.5em; font-weight: 700; line-height: 1.35; }
+#kl-lyrics .kl-cur span { color: rgba(255,255,255,.55); transition: color .1s; }
+#kl-lyrics .kl-cur span.on { color: #ffd54a; }
+#kl-lyrics .kl-cur.kl-info { font-size: .85em; font-weight: 500; color: rgba(255,255,255,.85); background: rgba(0,0,0,.45); display: inline-block; padding: 6px 14px; border-radius: 10px; }
+#kl-lyrics .kl-next { font-size: .95em; opacity: .75; margin-top: .25em; line-height: 1.3; }
+.ytp-autohide #kl-lyrics { bottom: 6%; }

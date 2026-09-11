@@ -1,0 +1,8 @@
+.venv/
+cache/
+__pycache__/
+*.log
+*.tmp
+*.tmp.ogg
+*.png
+.DS_Store

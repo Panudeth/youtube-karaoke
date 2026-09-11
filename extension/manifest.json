@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Karaoke Live for YouTube",
+  "version": "2.0",
+  "description": "ตัดเสียงร้องออกจากวิดีโอ YouTube แบบสด พร้อมคำร้อง ด้วย AI บนเครื่องของคุณ (ต้องรัน server จากโปรเจกต์ youtube-karaoke)",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "background": { "service_worker": "bg.js" },
+  "action": { "default_title": "Karaoke Live: ตั้งค่าการเชื่อมต่อ" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
