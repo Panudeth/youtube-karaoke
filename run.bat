@@ -23,6 +23,14 @@ echo.
 echo  ===== YouTube Karaoke =====
 echo.
 
+if not exist "install.py" (
+    echo  It looks like you are running this from inside the ZIP file.
+    echo  Please "Extract all" the ZIP first, open the extracted folder, then run this file again.
+    echo.
+    pause
+    exit /b 1
+)
+
 if not exist ".venv\Scripts\python.exe" (
     echo [setup] creating Python environment...
     py -3.12 -m venv .venv 2>nul || py -3.11 -m venv .venv 2>nul || py -3.10 -m venv .venv 2>nul || python -m venv .venv

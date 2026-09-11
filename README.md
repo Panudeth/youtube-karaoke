@@ -15,8 +15,9 @@
 
 ## ติดตั้งและใช้งาน
 
-1. ดาวน์โหลดโปรเจกต์ (ปุ่ม **Code → Download ZIP** แล้วแตกไฟล์ หรือ `git clone https://github.com/Panudeth/youtube-karaoke.git`)
-2. ดับเบิลคลิก **`run.bat`** แค่นั้น ครั้งแรกจะติดตั้งทุกอย่างให้เอง: สร้าง Python environment, ติดตั้ง PyTorch/ไลบรารี/ffmpeg,
+1. ดาวน์โหลดโปรเจกต์ (ปุ่ม **Code → Download ZIP**) แล้ว **แตก ZIP ก่อน** (คลิกขวา → Extract All) อย่ารันจากในไฟล์ ZIP
+   หรือใช้ `git clone https://github.com/Panudeth/youtube-karaoke.git`
+2. เปิดโฟลเดอร์ที่แตกออกมา ดับเบิลคลิก **`run`** ตัวที่เป็น Windows Batch File (ไอคอนเฟือง) แค่นั้น ครั้งแรกจะติดตั้งทุกอย่างให้เอง: สร้าง Python environment, ติดตั้ง PyTorch/ไลบรารี/ffmpeg,
    และดาวน์โหลดโมเดล AI ประมาณ 7GB (ใช้เวลา 10-20 นาทีตามเน็ต) ครั้งต่อไปเปิดได้ใน ~30 วินาที
    เมื่อพร้อมจะขึ้น `READY` ในหน้าต่างดำและเปิดหน้าเว็บให้เอง ปล่อยหน้าต่างนี้เปิดไว้ตลอดที่ใช้
    ถ้ายังไม่มี Python จะพาไปหน้าดาวน์โหลด ติดตั้งแล้ว (ติ๊ก "Add python.exe to PATH") รัน `run.bat` อีกครั้ง
