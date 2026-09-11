@@ -13,24 +13,13 @@
 - [Python 3.10-3.12](https://www.python.org/downloads/) (ตอนติดตั้งติ๊ก "Add to PATH")
 - Chrome หรือ Edge
 
-## ติดตั้ง (ครั้งเดียว)
+## ติดตั้งและใช้งาน
 
-เปิด PowerShell ในโฟลเดอร์โปรเจกต์แล้วรัน
-
-```powershell
-git clone https://github.com/Panudeth/youtube-karaoke.git
-cd youtube-karaoke
-python -m venv .venv
-.venv\Scripts\pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-.venv\Scripts\pip install -r requirements.txt
-winget install Gyan.FFmpeg
-```
-
-ครั้งแรกที่รัน โปรแกรมจะดาวน์โหลดโมเดล AI เองประมาณ 7GB (Demucs, Whisper large-v3, Whisper ภาษาไทย) รอสักครู่
-
-## ใช้งาน
-
-1. ดับเบิลคลิก `run.bat` เปิด server ค้างไว้ (หน้าต่างดำจะเปิดอยู่ตลอดที่ใช้)
+1. ดาวน์โหลดโปรเจกต์ (ปุ่ม **Code → Download ZIP** แล้วแตกไฟล์ หรือ `git clone https://github.com/Panudeth/youtube-karaoke.git`)
+2. ดับเบิลคลิก **`run.bat`** แค่นั้น ครั้งแรกจะติดตั้งทุกอย่างให้เอง: สร้าง Python environment, ติดตั้ง PyTorch/ไลบรารี/ffmpeg,
+   และดาวน์โหลดโมเดล AI ประมาณ 7GB (ใช้เวลา 10-20 นาทีตามเน็ต) ครั้งต่อไปเปิดได้ใน ~30 วินาที
+   เมื่อพร้อมจะขึ้น `READY` ในหน้าต่างดำและเปิดหน้าเว็บให้เอง ปล่อยหน้าต่างนี้เปิดไว้ตลอดที่ใช้
+   ถ้ายังไม่มี Python จะพาไปหน้าดาวน์โหลด ติดตั้งแล้ว (ติ๊ก "Add python.exe to PATH") รัน `run.bat` อีกครั้ง
 2. ติดตั้ง extension ครั้งเดียว: เปิด `chrome://extensions` เปิด **Developer mode** กด **Load unpacked** เลือกโฟลเดอร์ `extension`
    หน้า "ตั้งค่าการเชื่อมต่อ" จะเปิดขึ้นเอง ถ้า Chrome ถามเรื่องเครือข่ายภายในเครื่อง กด **Allow**
 3. เปิด youtube.com เล่นเพลงอะไรก็ได้ คลิกที่หน้าเว็บหนึ่งครั้ง แผง 🎤 Karaoke Live มุมขวาล่างจะเริ่มทำงาน

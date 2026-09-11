@@ -390,6 +390,7 @@ def lyrics_worker():
             transcriber_th = Transcriber(WHISPER_TH_MODEL, WHISPER_COMPUTE)
         except Exception as e:  # noqa
             print(f"[lyrics] Thai whisper model unavailable ({e}); using {WHISPER_MODEL} for Thai too")
+    print("\n  READY  ->  web player: http://127.0.0.1:8765   |   extension: open youtube.com\n", flush=True)
     while True:
         vid = None
         with lock:
