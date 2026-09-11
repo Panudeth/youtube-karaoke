@@ -42,6 +42,41 @@ def have(module):
         return False
 
 
+def nvidia_smi():
+    """(gpu name, driver version) from nvidia-smi, or (None, None)."""
+    exe = shutil.which("nvidia-smi") or r"C:\Windows\System32\nvidia-smi.exe"
+    try:
+        out = subprocess.run([exe, "--query-gpu=name,driver_version", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
+        name, drv = [x.strip() for x in out[0].split(",")[:2]]
+        return name, drv
+    except Exception:
+        return None, None
+
+
+def driver_major(drv):
+    try:
+        return int(str(drv).split(".")[0])
+    except Exception:
+        return 0
+
+
+def torch_supports_gpu():
+    """True when the installed PyTorch has compiled kernels for the GPU in this machine (sm_xx match)
+    and a tiny CUDA op actually runs."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+        major, minor = torch.cuda.get_device_capability(0)
+        archs = torch.cuda.get_arch_list()
+        if archs and not any(a in (f"sm_{major}{minor}", f"compute_{major}{minor}") for a in archs) and not any(a.startswith(f"sm_{major}") for a in archs):
+            return False
+        return bool((torch.ones(2, device="cuda") * 2).sum().item() == 4)
+    except Exception:
+        return False
+
+
 def winget_install(pkg_id, name):
     if not shutil.which("winget"):
         print(f"  !! winget not found. Please install {name} manually.")
@@ -59,17 +94,33 @@ def main():
         print("  !! Python 3.10-3.13 is required.")
         sys.exit(1)
 
-    # 2) torch with CUDA
+    # 2) torch with CUDA. RTX 50-series (Blackwell) needs a CUDA 12.8 build; older GPUs work with either.
     step("PyTorch")
+    gpu_name, driver = nvidia_smi()
+    if gpu_name:
+        print(f"  GPU: {gpu_name} (driver {driver or '?'})")
+    else:
+        print("  !! nvidia-smi not found: no NVIDIA driver installed? Install the latest GeForce driver first.")
+    want_cu128 = (driver_major(driver) >= 570) or ("RTX 50" in (gpu_name or "").upper())
+    cuda_tag = "cu128" if want_cu128 else "cu124"
     ok = False
     if have("torch"):
         import torch
-        ok = torch.version.cuda is not None
-        print(f"  torch {torch.__version__} (cuda build: {ok})")
+        print(f"  torch {torch.__version__} (cuda build: {torch.version.cuda})")
+        ok = torch.version.cuda is not None and torch_supports_gpu()
+        if not ok and torch.version.cuda is not None:
+            print("  !! this PyTorch build has no kernels for your GPU; reinstalling the right build")
     if not ok:
-        print("  installing PyTorch with CUDA 12.4 (about 2.5 GB, a few minutes)...")
+        print(f"  installing PyTorch with CUDA ({cuda_tag}, about 2.5-3 GB, a few minutes)...")
         pip("install", "--upgrade", "pip", "-q")
-        pip("install", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu124")
+        pip("install", "--upgrade", "--force-reinstall", "--no-deps", "torch", "torchaudio", "--index-url", f"https://download.pytorch.org/whl/{cuda_tag}")
+        pip("install", "torch", "torchaudio", "--index-url", f"https://download.pytorch.org/whl/{cuda_tag}")  # pull their dependencies
+        for m in list(sys.modules):
+            if m == "torch" or m.startswith("torch."):
+                del sys.modules[m]
+        if not torch_supports_gpu():
+            print("  !! PyTorch still cannot use this GPU. Update the NVIDIA driver (GeForce Experience / nvidia.com) and run again.")
+            sys.exit(1)
 
     # 3) packages
     step("Python packages")
@@ -100,7 +151,8 @@ def main():
     step("GPU")
     import torch
     if torch.cuda.is_available():
-        print(f"  {torch.cuda.get_device_name(0)}, {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        print(f"  {torch.cuda.get_device_name(0)}, {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB, "
+              f"compute {'.'.join(map(str, torch.cuda.get_device_capability(0)))}, torch cuda {torch.version.cuda}")
     else:
         print("  !! No CUDA GPU detected. The server will run on CPU and be far too slow for live use.")
 
