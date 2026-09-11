@@ -3,7 +3,7 @@
 ฟังเพลงบน YouTube ตามปกติ แล้วให้ AI ตัดเสียงร้องออกแบบสด พร้อมคำร้องไล่สีตามจังหวะ ทำงานบนเครื่องของคุณเอง (ไม่มีค่าใช้จ่าย ไม่ส่งข้อมูลออกไปไหน)
 
 - ตัดเสียงร้องด้วย [Demucs](https://github.com/facebookresearch/demucs) ปรับระดับเสียงร้อง 0-100% ได้ระหว่างเล่น
-- คำร้องจาก subtitle ของ YouTube (ถ้ามี) จับจังหวะต่อคำด้วย [Whisper](https://github.com/SYSTRAN/faster-whisper) ถ้าไม่มีก็ให้ Whisper ถอดเอง รองรับภาษาไทยด้วย [Thonburian Whisper](https://github.com/biodatlab/thonburian-whisper)
+- คำร้องเอาข้อความจาก subtitle ของ YouTube หรือฐานข้อมูลเนื้อเพลง [LRCLIB](https://lrclib.net) (ตรวจสอบกับเสียงจริงก่อนใช้) แล้วจับจังหวะต่อคำด้วย [Whisper](https://github.com/SYSTRAN/faster-whisper) ถ้าไม่มีทั้งคู่ Whisper ถอดเอง (ภาษาไทยใช้ [Thonburian Whisper](https://github.com/biodatlab/thonburian-whisper))
 - ใช้กับหน้า YouTube จริง (login ได้ เล่น playlist ได้) ผ่าน browser extension หรือใช้หน้าเว็บของโปรแกรมเองก็ได้
 - เพลงใหม่ 4 นาที: เสียงเริ่มเล่นได้ใน ~7 วินาที คำร้องพร้อมใน ~25 วินาที (RTX 3070) เพลงถัดไปใน playlist เตรียมล่วงหน้าให้
 

@@ -75,6 +75,92 @@ def fetch_youtube_captions(vid: str, ydl_opts: dict, prefer=("th", "en"), allow_
     return None
 
 
+# ---------------------------------------------------------------- LRCLIB (community lyrics database)
+LRCLIB_UA = "youtube-karaoke/1.0 (https://github.com/Panudeth/youtube-karaoke)"
+
+
+def clean_title(t: str) -> str:
+    t = re.sub(r"[\[\(【「].*?[\]\)】」]", " ", t or "")
+    t = re.sub(r"(?i)\b(official|mv|music video|lyric video|lyrics?|audio|live session|live|ost|4k|hd|ver\.?|version|cover)\b", " ", t)
+    t = re.sub(r"[|｜/]", " ", t)
+    return re.sub(r"\s+", " ", t).strip(" -–—")
+
+
+def _parse_lrc(text: str) -> list:
+    lines = []
+    for raw in text.splitlines():
+        m = re.match(r"^\s*((?:\[\d+:\d+(?:\.\d+)?\]\s*)+)(.*)$", raw)
+        if not m:
+            continue
+        body = m.group(2).strip()
+        if not body:
+            continue
+        for ts in re.findall(r"\[(\d+):(\d+(?:\.\d+)?)\]", m.group(1)):
+            lines.append({"s": int(ts[0]) * 60 + float(ts[1]), "text": body})
+    lines.sort(key=lambda x: x["s"])
+    for i, ln in enumerate(lines):
+        ln["e"] = lines[i + 1]["s"] if i + 1 < len(lines) else ln["s"] + 5.0
+        ln["words"] = []
+    return lines
+
+
+def fetch_lrclib(title: str, artist: str | None, duration: float, timeout: float = 8.0):
+    """Look a song up on lrclib.net. Returns {"lines": [...], "synced": bool, "track": str, "artist": str} or None.
+    Candidates are scored by duration match, then by title similarity."""
+    import difflib
+    import urllib.parse
+    import urllib.request
+    q_title = clean_title(title)
+    queries = []
+    if artist:
+        queries.append({"track_name": q_title, "artist_name": clean_title(artist)})
+    parts = [p.strip() for p in re.split(r"\s[-–—]\s|\s[xX×]\s", q_title) if p.strip()]
+    if len(parts) >= 2:
+        queries.append({"track_name": parts[1], "artist_name": parts[0]})
+        queries.append({"track_name": parts[0], "artist_name": parts[1]})
+    queries.append({"q": q_title})
+    seen, cands = set(), []
+    for params in queries:
+        url = "https://lrclib.net/api/search?" + urllib.parse.urlencode(params)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": LRCLIB_UA})
+            res = json.load(urllib.request.urlopen(req, timeout=timeout))
+        except Exception as e:  # noqa
+            print(f"[lyrics] lrclib query failed: {e}")
+            continue
+        for r in res or []:
+            if r.get("id") in seen or not (r.get("syncedLyrics") or r.get("plainLyrics")):
+                continue
+            seen.add(r["id"])
+            d = float(r.get("duration") or 0)
+            diff = abs(d - duration) if d and duration else 99
+            sim = difflib.SequenceMatcher(None, re.sub(r"\s", "", q_title.lower()),
+                                          re.sub(r"\s", "", f"{r.get('trackName','')}{r.get('artistName','')}".lower())).ratio()
+            score = (3 if diff <= 6 else 2 if diff <= 15 else 0 if diff <= 40 else -5) + (1.5 if r.get("syncedLyrics") else 0) + sim
+            cands.append((score, diff, r))
+        if cands and max(c[0] for c in cands) >= 4:
+            break
+    if not cands:
+        return None
+    cands.sort(key=lambda c: -c[0])
+    score, diff, r = cands[0]
+    if score < 1.5:
+        return None
+    if r.get("syncedLyrics") and diff <= 5:
+        lines, synced = _parse_lrc(r["syncedLyrics"]), True
+    elif r.get("syncedLyrics"):
+        # a different edit of the song (intro/outro length differs): keep the words, drop the LRC timing
+        lines = [{"s": None, "e": None, "text": ln["text"], "words": []} for ln in _parse_lrc(r["syncedLyrics"])]
+        synced = False
+    else:
+        lines = [{"s": None, "e": None, "text": t.strip(), "words": []} for t in r["plainLyrics"].splitlines() if t.strip()]
+        synced = False
+    if len(lines) < 4:
+        return None
+    print(f"[lyrics] lrclib: '{r.get('trackName')}' by '{r.get('artistName')}' ({'synced' if synced else 'plain'}, duration diff {diff:.0f}s, score {score:.1f})")
+    return {"lines": lines, "synced": synced, "track": r.get("trackName"), "artist": r.get("artistName")}
+
+
 # ---------------------------------------------------------------- Whisper
 def _to16k(vocals: torch.Tensor, sr: int) -> np.ndarray:
     return torchaudio.functional.resample(vocals.mean(0), sr, 16000).numpy().astype(np.float32)
@@ -345,11 +431,20 @@ def split_caption_lines(cap_lines: list, max_chars: int = 34) -> list:
 
 
 def align_captions(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr: int) -> list:
-    """Keep the uploader's caption text (accurate words) but take word timing from Whisper:
+    return align_text(cap_lines, raw_whisper, vocals, sr)[0]
+
+
+def align_text(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr: int, min_ratio: float = 0.35):
+    """Keep a trusted text (captions / lyrics database) but take word timing from Whisper:
     character-level alignment of the two transcripts (spaces ignored), unmatched characters
-    interpolated, then cut into karaoke lines on pauses. Falls back to proportional timing per cue
-    when the alignment is poor."""
+    interpolated, then cut into karaoke lines on pauses. Lines may carry their own timing ("s"/"e",
+    used as a sanity window) or none (plain lyrics). Returns (lines, matched_ratio); when the ratio is
+    below min_ratio the text probably is not this song's, and (fallback_lines, ratio) is returned."""
     import difflib
+    duration = vocals.shape[1] / sr
+    timed = all(ln.get("s") is not None for ln in cap_lines)
+    if not timed:  # plain lyrics: give every line the whole track as its window
+        cap_lines = [dict(ln, s=0.0, e=duration) for ln in cap_lines]
     # 1) Whisper character timeline
     wch, wt = [], []
     for ln in energy_filter(raw_whisper, vocals, sr):
@@ -368,7 +463,7 @@ def align_captions(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr:
             if not ch.isspace():
                 cch.append(ch.lower()); cref.append((li, ci))
     if not wch or not cch:
-        return split_caption_lines(cap_lines)
+        return (split_caption_lines(cap_lines) if timed else []), 0.0
     sm = difflib.SequenceMatcher(None, wch, cch, autojunk=False)
     ctime = [None] * len(cch)
     matched = 0
@@ -376,9 +471,9 @@ def align_captions(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr:
         for k in range(size):
             ctime[b + k] = wt[a + k]; matched += 1
     ratio = matched / len(cch)
-    if ratio < 0.35:
-        print(f"[lyrics] caption alignment weak ({ratio:.0%}); using proportional timing")
-        return split_caption_lines(cap_lines)
+    if ratio < min_ratio:
+        print(f"[lyrics] text alignment weak ({ratio:.0%})")
+        return (split_caption_lines(cap_lines) if timed else []), ratio
     # 3) interpolate unmatched characters between neighbours (bounded by the cue's own window)
     last_t, next_idx = None, 0
     for i in range(len(cch)):
@@ -395,9 +490,10 @@ def align_captions(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr:
                 ctime[k] = (t0, t1)
         last_t = ctime[i][1]
     # clamp into the cue window (+/- 1.5 s) so a misalignment cannot throw a line far away
-    for i, (li, _) in enumerate(cref):
-        lo, hi = cap_lines[li]["s"] - 1.5, cap_lines[li]["e"] + 1.5
-        ctime[i] = (min(max(ctime[i][0], lo), hi), min(max(ctime[i][1], lo), hi))
+    if timed:
+        for i, (li, _) in enumerate(cref):
+            lo, hi = cap_lines[li]["s"] - 1.5, cap_lines[li]["e"] + 1.5
+            ctime[i] = (min(max(ctime[i][0], lo), hi), min(max(ctime[i][1], lo), hi))
     # 4) words per caption line with timing from their characters
     per_line = {}
     for i, (li, ci) in enumerate(cref):
@@ -415,5 +511,5 @@ def align_captions(cap_lines: list, raw_whisper: list, vocals: torch.Tensor, sr:
     for i in range(len(words) - 1):
         if words[i]["e"] > words[i + 1]["s"]:
             words[i]["e"] = words[i + 1]["s"]
-    print(f"[lyrics] caption alignment {ratio:.0%} matched, {len(words)} words")
-    return build_lines(words)
+    print(f"[lyrics] text alignment {ratio:.0%} matched, {len(words)} words")
+    return build_lines(words), ratio

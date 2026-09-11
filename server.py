@@ -31,9 +31,10 @@ WHISPER_MODEL = os.environ.get("KARAOKE_WHISPER_MODEL", "large-v3")
 WHISPER_COMPUTE = os.environ.get("KARAOKE_WHISPER_COMPUTE", "int8_float16")
 WHISPER_TH_MODEL = os.environ.get("KARAOKE_WHISPER_TH_MODEL", "Vinxscribe/biodatlab-whisper-th-large-v3-faster")
 WHISPER_BATCH = int(os.environ.get("KARAOKE_WHISPER_BATCH", "16"))   # batched decoding: ~7x faster than sequential
-WHISPER_BEAM = int(os.environ.get("KARAOKE_WHISPER_BEAM", "3"))
+WHISPER_BEAM = int(os.environ.get("KARAOKE_WHISPER_BEAM", "5"))
 WHISPER_MIN_AHEAD_SEC = float(os.environ.get("KARAOKE_WHISPER_MIN_AHEAD", "45"))
 LYRICS_LANG = os.environ.get("KARAOKE_LANG", "") or None
+LRCLIB_ENABLED = os.environ.get("KARAOKE_LRCLIB", "1") != "0"   # look lyrics text up on lrclib.net
 QUALITY_TAG = f"{MODEL}-{ACCOMP_MODE}" + (f"-s{SHIFTS}" if SHIFTS else "")
 CACHE = BASE / "cache" / QUALITY_TAG
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -170,7 +171,8 @@ def download_audio(vid: str, dest: Path) -> Path:
     url = "https://www.youtube.com/watch?v=" + vid
     with yt_dlp.YoutubeDL(ydl_opts({"format": "bestaudio/best", "outtmpl": tmpl, "overwrites": True})) as ydl:
         info = ydl.extract_info(url, download=True)
-        set_status(vid, title=info.get("title") or vid)
+        set_status(vid, title=info.get("title") or vid, track=info.get("track"), artist=info.get("artist"),
+                   uploader=info.get("uploader") or info.get("channel"))
     raw = next(dest.glob("raw.*"))
     subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", str(raw),
                     "-ac", "2", "-ar", "44100", "-f", "wav", str(src)], check=True)
@@ -232,6 +234,8 @@ def process(vid: str):
         (dest / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         src.unlink(missing_ok=True)
         set_status(vid, state="done")
+        if LYRICS_ENABLED and LRCLIB_ENABLED:
+            lookup_lrclib(vid)
         enqueue_lyrics(vid, front=True)
     except Exception as e:  # noqa
         import traceback
@@ -317,6 +321,29 @@ def prefetch_captions(vid: str):
     set_status(vid, captions_checked=True)
 
 
+def lookup_lrclib(vid: str):
+    """Lyrics database lookup (text only, no GPU). Cached in lrclib.json; {} means not found."""
+    import lyrics as L
+    dest = CACHE / vid
+    p = dest / "lrclib.json"
+    if p.exists():
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return d or None
+    t = get_status(vid)
+    title = t.get("track") or t.get("title") or ""
+    artist = t.get("artist") or (t.get("uploader") or "").replace("Official", "").replace("official", "").strip()
+    got = None
+    try:
+        got = L.fetch_lrclib(title, artist, float(t.get("duration") or 0))
+        if not got and t.get("track") and t.get("title"):
+            got = L.fetch_lrclib(t["title"], None, float(t.get("duration") or 0))
+    except Exception as e:  # noqa
+        print(f"[lyrics] lrclib lookup failed {vid}: {e}")
+    dest.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(got or {}, ensure_ascii=False), encoding="utf-8")
+    return got
+
+
 def make_lyrics(vid: str):
     import lyrics as L
     dest = CACHE / vid
@@ -335,9 +362,18 @@ def make_lyrics(vid: str):
                     got = L.fetch_youtube_captions(vid, ydl_opts(), allow_auto=False)
                 except Exception as e:  # noqa
                     print(f"[lyrics] youtube captions failed: {e}")
+        cands = []   # (name, lines, language): trusted texts to be timed with Whisper
+        if got:
+            cands.append((got[2], got[0], got[1]))
+        if force is None and LRCLIB_ENABLED:
+            lr = lookup_lrclib(vid)
+            if lr:
+                cands.append(("lrclib", lr["lines"], None))
         have_vocals = transcriber is not None and force != "auto" and (dest / "vocals.wav").exists()
-        if got and not have_vocals:
-            out = {"source": got[2], "language": got[1], "lines": L.split_caption_lines(got[0])}
+        if cands and not have_vocals:
+            name, lines_c, language = cands[0]
+            timed = [ln for ln in lines_c if ln.get("s") is not None]
+            out = {"source": name, "language": language, "lines": L.split_caption_lines(timed) if timed else []}
         elif have_vocals:
             data, sr = sf.read(str(dest / "vocals.wav"), dtype="float32", always_2d=True)
             voc = torch.from_numpy(data.T.copy())
@@ -352,12 +388,17 @@ def make_lyrics(vid: str):
             raw, lang_out = model.transcribe(voc, sr, language=lang, gpu_lock=gpu.low, may_run=whisper_may_run,
                                              batch_size=WHISPER_BATCH, beam_size=WHISPER_BEAM,
                                              on_progress=lambda p: set_status(vid, lyrics_progress=p))
-            if got:   # accurate text from the uploader + word timing from Whisper
-                lines = L.align_captions(got[0], raw, voc, sr)
-                out = {"source": got[2] + "+whisper", "language": got[1], "lines": lines}
+            best = None   # keep the trusted text that matches the singing best
+            for name, lines_c, language in cands:
+                aligned, ratio = L.align_text(lines_c, raw, voc, sr, min_ratio=0.45)
+                print(f"[lyrics] {vid}: candidate {name} alignment {ratio:.0%}")
+                if ratio >= 0.45 and (best is None or ratio > best[1] + 0.05):
+                    best = (name, ratio, aligned, language)
+            if best:
+                out = {"source": best[0] + "+whisper", "language": best[3] or lang_out, "lines": best[2], "match": round(best[1], 2)}
             else:
-                lines = L.postprocess(raw, voc, sr)
-                out = {"source": "whisper", "language": lang_out, "lines": lines}
+                out = {"source": "whisper", "language": lang_out, "lines": L.postprocess(raw, voc, sr)}
+            lines = out["lines"]
             print(f"[lyrics] {vid}: {out['source']} {len(lines)} lines in {time.time()-t0:.1f}s")
         if not out["lines"]:
             try:
@@ -523,13 +564,20 @@ def api_lyrics(vid: str):
         return d
     t = get_status(vid)
     cap = CACHE / vid / "captions.json"
+    lr = CACHE / vid / "lrclib.json"
+    early = None
     if cap.exists() and vid not in lyrics_force:
+        early = json.loads(cap.read_text(encoding="utf-8"))
+    elif lr.exists() and vid not in lyrics_force:
+        d = json.loads(lr.read_text(encoding="utf-8"))
+        if d and d.get("synced"):
+            early = {"source": "lrclib", "language": None, "lines": d["lines"]}
+    if early:
         import lyrics as L
-        d = json.loads(cap.read_text(encoding="utf-8"))
-        d["lines"] = L.split_caption_lines(d.get("lines") or [])
-        d["state"] = "done"; d["final"] = transcriber is None   # refined (Whisper-timed) version follows
-        d["progress"] = t.get("lyrics_progress", 0.0)
-        return d
+        early["lines"] = L.split_caption_lines([ln for ln in early.get("lines") or [] if ln.get("s") is not None])
+        early["state"] = "done"; early["final"] = transcriber is None   # refined (Whisper-timed) version follows
+        early["progress"] = t.get("lyrics_progress", 0.0)
+        return early
     return {"state": t.get("lyrics") or ("pending" if t.get("state") == "done" else "waiting"),
             "progress": t.get("lyrics_progress", 0.0), "error": t.get("lyrics_error"),
             "separation": t.get("state"), "sep_progress": (t.get("chunks_ready") or 0) / (t.get("total_chunks") or 1)}
